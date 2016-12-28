@@ -16,6 +16,8 @@ import org.json.JSONException;
 
 import com.facebook.accountkit.AccountKit;
 import com.facebook.accountkit.AccessToken;
+import com.facebook.accountkit.AccountKitCallback;
+import com.facebook.accountkit.AccountKitError;
 import com.facebook.accountkit.AccountKitLoginResult;
 import com.facebook.accountkit.ui.AccountKitActivity;
 import com.facebook.accountkit.ui.AccountKitConfiguration;
@@ -78,20 +80,17 @@ public class AccountKitPlugin extends CordovaPlugin {
     pr.setKeepCallback(true);
     loginContext.sendPluginResult(pr);
 
-    try {
-      if (hasAccessToken()) {
-        callbackContext.success(formatAccessToken(AccountKit.getCurrentAccessToken()));
-        return;
-      }
-    } catch (JSONException e) {
-      e.printStackTrace();
+    if (hasAccessToken()) {
+      //callbackContext.success(formatAccessToken(AccountKit.getCurrentAccessToken()));
+      getAccountDetails();
+      return;
     }
 
     Intent intent = new Intent(this.cordova.getActivity(), AccountKitActivity.class);
     AccountKitConfiguration.AccountKitConfigurationBuilder configurationBuilder =
       new AccountKitConfiguration.AccountKitConfigurationBuilder(
-        type,
-        AccountKitActivity.ResponseType.TOKEN);
+          type,
+          AccountKitActivity.ResponseType.TOKEN);
     intent.putExtra(AccountKitActivity.ACCOUNT_KIT_ACTIVITY_CONFIGURATION, configurationBuilder.build());
 
     cordova.setActivityResultCallback(this);
@@ -117,18 +116,18 @@ public class AccountKitPlugin extends CordovaPlugin {
       try {
         final AccessToken accessToken = loginResult.getAccessToken();
         if (accessToken != null) {
-          result = formatAccessToken(accessToken);
+          getAccountDetails();
         } else {
           result = new JSONObject();
           result.put("code", loginResult.getAuthorizationCode());
           result.put("state", loginResult.getFinalAuthorizationState());
+          loginContext.success(result);
         }
-        loginContext.success(result);
       } catch (JSONException e) {
         e.printStackTrace();
       }
     }
-    loginContext = null;
+    //loginContext = null;
   }
 
   private boolean hasAccessToken() {
@@ -143,5 +142,49 @@ public class AccountKitPlugin extends CordovaPlugin {
     result.put("lastRefresh", accessToken.getLastRefresh().getTime());
     result.put("refreshInterval", accessToken.getTokenRefreshIntervalSeconds());
     return result;
+  }
+
+  public void getAccountDetails() {
+    AccountKit.getCurrentAccount(new AccountKitCallback<com.facebook.accountkit.Account>() {
+      @Override
+      public void onSuccess(com.facebook.accountkit.Account account) {
+
+        try {
+          JSONObject result = new JSONObject();
+          AccessToken accessToken = AccountKit.getCurrentAccessToken();
+          result.put("accountId", accessToken.getAccountId());
+          result.put("applicationId", accessToken.getApplicationId());
+          result.put("token", accessToken.getToken());
+          result.put("lastRefresh", accessToken.getLastRefresh().getTime());
+          result.put("refreshInterval", accessToken.getTokenRefreshIntervalSeconds());
+
+          if (account.getEmail() != null) {
+            result.put("email", account.getEmail());
+          } else if (account.getPhoneNumber() != null) {
+            result.put("mobile", account.getPhoneNumber().toString());
+          }
+
+          loginContext.success(result);
+        } catch (JSONException e) {
+          loginContext.error("unexpected JSON exception");
+        }
+      }
+
+      @Override
+      public void onError(AccountKitError accountKitError) {
+        try {
+          JSONObject result = new JSONObject();
+          AccessToken accessToken = AccountKit.getCurrentAccessToken();
+          result.put("accessToken", accessToken.getToken());
+          result.put("provider", "accountkit");
+          result.put("id", accessToken.getAccountId());
+          result.put("error", "unable to get email or phone number");
+
+          loginContext.error(result);
+        } catch (JSONException e) {
+          loginContext.error("unexpected JSON exception");
+        }
+      }
+    });
   }
 }
